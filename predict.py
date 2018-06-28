@@ -64,7 +64,9 @@ def predict(model, dataloader):
     f.write('total acc:{:.4f}\n'.format(total_corrects / total_samples))
 
     # auc value
-    auc_output = np.array(list(study_out.values()))
+    final_scores = [np.mean(study_out[x]) for x in study_out.keys()]
+    auc_output = np.array(final_scores)
+    #auc_output = np.array(list(study_out.values()))a
     auc_target = np.array(list(study_label.values()))
     auc.add(auc_output, auc_target)
 

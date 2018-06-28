@@ -174,7 +174,9 @@ def valid_model(valid_loader, model, criterion, optimizer, epoch):
     #print('total acc:{:.4f}'.format(total_corrects / total_samples))
 
     # auc value
-    auc_output = np.array(list(study_out.values()))
+    final_scores = [np.mean(study_out[x]) for x in study_out.keys()]
+    auc_output = np.array(final_scores)
+    #auc_output = np.array(list(study_out.values()))
     auc_target = np.array(list(study_label.values()))
     auc.add(auc_output, auc_target)
 
