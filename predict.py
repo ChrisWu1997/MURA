@@ -6,6 +6,7 @@ from dataset import get_dataloaders
 from utils import AUCMeter
 import numpy as np
 import os
+from model import resnet50
 
 def predict(model, dataloader):
     # using model to predict, based on dataloader

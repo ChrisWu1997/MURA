@@ -89,13 +89,15 @@ class MURA_Dataset(Dataset):
         image_num = self._parse_image(img_filename)
         study_type = self._parse_study_type(img_filename)
 
-        image = Image.open(os.path.join(self.data_dir, img_filename)).convert('RGB')
+        file_path = os.path.join(self.data_dir, img_filename)
+        image = Image.open(file_path).convert('RGB')
         #image = cv2.imread(os.path.join(self.data_dir, img_filename))
         label = self.frame.iloc[idx,1]
 
         meta_data = {
             'y_true': label,
             'img_filename': img_filename,
+            'file_path': file_path,
             'patient': patient,
             'study': study,
             'study_type': study_type,
@@ -108,28 +110,34 @@ class MURA_Dataset(Dataset):
         sample = {'image': image, 'label':label, 'meta_data':meta_data}
         return sample
 
-def get_dataloaders(name, batch_size, shuffle, num_workers=32):
+
+def get_dataloaders(name, batch_size, shuffle, num_workers=32, is_local=False):
     data_transforms = {
         'train': transforms.Compose([
-            transforms.Resize((224, 224)),
-            #transforms.RandomResizedCrop(224),
+            transforms.Resize((256, 256)),
+            transforms.RandomResizedCrop(224),
             #transforms.CenterCrop(224),
             transforms.RandomHorizontalFlip(),
-            transforms.RandomRotation(20),
+            transforms.RandomRotation(30),
             transforms.ToTensor(),
             #transforms.Normalize([0.2056, 0.2056, 0.2056], [0.0313, 0.0313, 0.0313])
             transforms.Normalize(mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225])
         ]),
         'valid': transforms.Compose([
-            transforms.Resize((224, 224)),
-            #transforms.CenterCrop(224),
+            transforms.Resize((256, 256)),
+            transforms.CenterCrop(224),
             transforms.ToTensor(),
             #transforms.Normalize([0.2056, 0.2056, 0.2056], [0.0313, 0.0313, 0.0313])
             transforms.Normalize(mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225])
         ]),
     }
 
-    image_dataset = MURA_Dataset(data_dir=config.data_dir, csv_file='MURA-v1.0/%s.csv'%(name), transform=data_transforms[name])
+    if is_local == False:
+        image_dataset = MURA_Dataset(data_dir=config.data_dir, csv_file='MURA-v1.0/%s.csv'%(name),
+                                     transform=data_transforms[name])
+    else:
+        image_dataset = MURA_Dataset(data_dir=config.data_dir, csv_file='local_data/%s.csv' % (name),
+                                     transform=data_transforms[name])
     dataloader = DataLoader(image_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
     #data_weights = {x : image_dataset[x].data_weights for x in ['train', 'valid']}
 
@@ -155,15 +163,9 @@ def calc_data_weights():
         else:
             N_t[study_type] += 1
 
-    print('N_t:', N_t)
-    print('A_t:', A_t)
-
     for t in config.study_type:
         W_t0[t] = A_t[t] / (A_t[t] + N_t[t])
         W_t1[t] = N_t[t] / (A_t[t] + N_t[t])
-
-    print('W_t0:', W_t0)
-    print('W_t1:', W_t1)
 
     return [W_t0, W_t1]
 
