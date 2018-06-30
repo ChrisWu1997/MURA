@@ -35,6 +35,7 @@ def get_code(model, query_input):
         code = code.view(code.size(0), -1).cpu().numpy()
     return code
 
+
 def generate_database(model, dataloader, save_dir):
     '''
     :param model: model to generate feature code

@@ -33,7 +33,7 @@ class Session:
     def save_checkpoint(self, name):
         ckp_path = os.path.join(self.model_dir, name)
         tmp = {
-            'net': self.net,
+            'state_dict': self.net.state_dict(),
             'best_val_acc': self.best_val_acc,
             'clock': self.clock.make_checkpoint(),
         }
@@ -41,7 +41,7 @@ class Session:
 
     def load_checkpoint(self, ckp_path):
         checkpoint = torch.load(ckp_path)
-        self.net = checkpoint['net']
+        self.net.load_state_dict(checkpoint['state_dict'])
         self.clock.restore_checkpoint(checkpoint['clock'])
         self.best_val_acc = checkpoint['best_val_acc']
 
@@ -64,12 +64,15 @@ def train_model(train_loader, model, criterion, optimizer, epoch):
         weights = [LOSS_WEIGHTS[labels[i]][study_type[i]] for i in range(inputs.size(0))]
         weights = torch.Tensor(weights).view_as(labels).to(config.device)
 
+        # pass this batch through our model and get y_pred
+        #outputs = model(inputs, file_paths)  # this is for fusenet
         outputs = model(inputs)
         preds = (outputs.data > 0.5).type(torch.cuda.FloatTensor)
+        #preds = torch.argmax(outputs, dim=1)
 
         # update loss metric
         loss = F.binary_cross_entropy(outputs, labels.float(), weights)
-        # loss = criterion(outputs, labels)
+        #loss = criterion(outputs, labels)
         losses.update(loss.item(), inputs.size(0))
 
         corrects = torch.sum(preds.view_as(labels) == labels.float().data)
@@ -93,7 +96,7 @@ def train_model(train_loader, model, criterion, optimizer, epoch):
     }
     return outspects
 
-# original validation function
+
 def valid_model(valid_loader, model, criterion, optimizer, epoch):
     # using model to predict, based on dataloader
     losses = AverageMeter('epoch_loss')
@@ -120,9 +123,10 @@ def valid_model(valid_loader, model, criterion, optimizer, epoch):
         weights = torch.Tensor(weights).view_as(labels).to(config.device)
 
         with torch.no_grad():
-
+            # pass this batch through our model and get y_pred
             outputs = model(inputs)
             preds = (outputs.data > 0.5).type(torch.cuda.FloatTensor)
+            # preds = torch.argmax(outputs, dim=1)
 
             # update loss metric
             loss = F.binary_cross_entropy(outputs, labels.float(), weights)
@@ -192,13 +196,12 @@ def valid_model(valid_loader, model, criterion, optimizer, epoch):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--epochs', default=50, type=int, help='epoch number')
-    parser.add_argument('-b', '--batch_size', default=256, type=int, help='mini-batch size')
-    parser.add_argument('--lr', '--learning_rate', default=1e-3, type=float, help='initial learning rate')
+    parser.add_argument('-b', '--batch_size', default=64, type=int, help='mini-batch size')
+    parser.add_argument('--lr', '--learning_rate', default=1e-4, type=float, help='initial learning rate')
     parser.add_argument('-c', '--continue', dest='continue_path', type=str, required=False)
     parser.add_argument('--exp_name', default=config.exp_name, type=str, required=False)
     parser.add_argument('--drop_rate', default=0, type=float, required=False)
     parser.add_argument('--only_fc', action='store_true', help='only train fc layers')
-    parser.add_argument('--net', default='densenet169', type=str, required=False)
     parser.add_argument('--local', action='store_true', help='train local branch')
     args = parser.parse_args()
     print(args)
@@ -208,23 +211,10 @@ def main():
     save_args(args, config.log_dir)
 
     # get network
-    if args.net == 'resnet50':
-        net = resnet50(pretrained=True, drop_rate=args.drop_rate)
-    elif args.net == 'resnet101':
-        net = resnet101(pretrained=True, drop_rate=args.drop_rate)
-    elif args.net == 'densenet121':
-        net = models.densenet121(pretrained=True)
-        net.classifier = nn.Sequential(nn.Linear(1024,1), nn.Sigmoid())
-    elif args.net == 'densenet169':
-        net = densenet169(pretrained=True, drop_rate=args.drop_rate)
-    elif args.net == 'fusenet':
-        global_branch = torch.load(GLOBAL_BRANCH_DIR)['net'].module.state_dict()
-        local_branch = torch.load(LOCAL_BRANCH_DIR)['net'].module.state_dict()
-        net = fusenet(global_branch, local_branch)
-        del global_branch, local_branch
-    else:
-        raise NameError
-
+    global_branch = torch.load(GLOBAL_BRANCH_DIR)['net']
+    local_branch = torch.load(LOCAL_BRANCH_DIR)['net']
+    local_branch = torch.nn.DataParallel(local_branch).cuda()
+    net = fusenet(global_branch, local_branch)
 
     net = torch.nn.DataParallel(net).cuda()
     sess = Session(config, net=net)
@@ -245,12 +235,12 @@ def main():
     sess.save_checkpoint('start.pth.tar')
 
     # set criterion, optimizer and scheduler
-    criterion = nn.BCELoss().cuda() # not used
+    criterion = nn.BCELoss().cuda()
 
     if args.only_fc == True:
         optimizer = optim.Adam(sess.net.module.classifier.parameters(), args.lr)
     else:
-        optimizer = optim.Adam(sess.net.parameters(), args.lr)
+        optimizer = optim.Adam(sess.net.module.local_branch.parameters(), args.lr)
 
     scheduler = ReduceLROnPlateau(optimizer, 'max', factor=0.1,  patience=10, verbose=True)
 

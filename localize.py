@@ -8,11 +8,16 @@ from PIL import Image
 import os
 import time
 from dataset import get_dataloaders
-#from misc_functions import get_params, save_class_activation_on_image
 
 Trans = transforms.Compose([
         transforms.Resize((256, 256)),
         transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        # transforms.Normalize([0.2056, 0.2056, 0.2056], [0.0313, 0.0313, 0.0313])
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+
+Normal = transforms.Compose([
         transforms.ToTensor(),
         # transforms.Normalize([0.2056, 0.2056, 0.2056], [0.0313, 0.0313, 0.0313])
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
@@ -59,6 +64,7 @@ def generate_grad_cam(net, input_image):
     gradient = np.squeeze(gradient, axis=0)
 
     weights = np.mean(gradient, axis=(1, 2), keepdims=True)
+    #weights = net.module.fc.weight.data.cpu().numpy().reshape((-1, 1, 1))
 
     cam = np.sum(weights * feature, axis=0)
 
@@ -68,6 +74,7 @@ def generate_grad_cam(net, input_image):
     cam = np.uint8(cam * 255)  # Scale between 0-255 to visualize
 
     return cam
+
 
 def localize(cam_feature, input_image):
     """
@@ -85,6 +92,61 @@ def localize(cam_feature, input_image):
     img_with_heatmap = img_with_heatmap / np.max(img_with_heatmap) * 255
 
     return img_with_heatmap
+
+
+def generate_local(cam_features, inputs):
+    """
+    :param cam_features: numpy array of shape = (B, 224, 224), pixel value range [0, 255]
+    :param inputs: tensor of size = (B, 3, 224, 224), with mean and std as Imagenet
+    :return: local image
+    """
+    b = cam_features.shape[0]
+    local_out = []
+    for k in range(b):
+        ori_img = invTrans(inputs[k]).cpu().numpy()
+        ori_img = np.transpose(ori_img, (1, 2, 0))
+        ori_img = np.uint8(ori_img * 255)
+        #cv2.imwrite('localize_result/ori' + str(k) + '.png', ori_img)
+
+        #if k==0:
+        #    cv2.imwrite("ori_img.png", ori_img)
+        crop = np.uint8(cam_features[k] > 0.7)
+        ret, markers = cv2.connectedComponents(crop)
+        branch_size = np.zeros(ret)
+        h = 224
+        w = 224
+        for i in range(h):
+            for j in range(w):
+                t = int(markers[i][j])
+                branch_size[t] += 1
+        branch_size[0] = 0
+        max_branch = np.argmax(branch_size)
+        mini = h
+        minj = w
+        maxi = -1
+        maxj = -1
+        for i in range(h):
+            for j in range(w):
+                if markers[i][j] == max_branch:
+                    if i < mini:
+                        mini = i
+                    if i > maxi:
+                        maxi = i
+                    if j < minj:
+                        minj = j
+                    if j > maxj:
+                        maxj = j
+        local_img = ori_img[mini: maxi + 1, minj: maxj + 1, :]
+        #print('local shape', local_img.shape)
+        local_img = cv2.resize(local_img, (224, 224))
+        #cv2.imwrite('localize_result/local' + str(k) + '.png', local_img)
+        local_img = Image.fromarray(local_img)
+        local_img = Normal(local_img)
+        local_out += [local_img]
+    #local_out = np.array(local_out)
+    local_out = torch.stack(local_out)
+    #print('local out:', local_out.size())
+    return local_out
 
 
 if __name__ == '__main__':

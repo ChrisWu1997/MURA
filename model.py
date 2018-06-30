@@ -12,115 +12,9 @@ import math
 import re
 import numpy as np
 import cv2
-from heatmap import generate_local
+from dataset import get_dataloaders
+from localize import Trans, invTrans, generate_local
 
-'''
-class _BottleneckBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, drop_rate=0.0):
-        super(_BottleneckBlock, self).__init__()
-        inner_channels = out_channels * 4   # some call it bn_size
-        self.bn1 = nn.BatchNorm2d(in_channels)  # this is equal to add_module
-        self.relu1 = nn.ReLU(inplace=True)
-        self.conv1 = nn.Conv2d(in_channels, inner_channels,
-                               kernel_size=1, stride=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(inner_channels)
-        self.relu2 = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(inner_channels, out_channels,
-                               kernel_size=3, stride=1, padding=1, bias=False)
-        self.drop_rate = drop_rate
-
-    def forward(self, x):
-        out = self.conv1(self.relu1(self.bn1(x)))
-        if self.drop_rate > 0:
-            out = F.dropout(out, self.drop_rate, training=self.training)
-        out = self.conv2(self.relu2(self.bn2(out)))
-        if self.drop_rate > 0:
-            out = F.dropout(out, self.drop_rate, training=self.training)
-        return torch.cat([x, out], dim=1)
-
-
-class _TransitionBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, drop_rate=0.0):
-        super(_TransitionBlock,self).__init__()
-        self.bn = nn.BatchNorm2d(in_channels)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv = nn.Conv2d(in_channels, out_channels,
-                              kernel_size=1, stride=1, bias=False)
-        self.pool = nn.AvgPool2d(kernel_size=2, stride=2)
-        self.drop_rate = drop_rate
-
-    def forward(self, x):
-        out = self.conv(self.relu(self.bn(x)))
-        if self.drop_rate > 0:
-            out = F.dropout(out, self.drop_rate, training=self.training)
-        out = self.pool(out)
-        return out
-
-
-class _DenseBlock(nn.Module):
-    def __init__(self, nr_blocks, in_channels, growth_rate, drop_rate):
-        super(_DenseBlock, self).__init__()
-        blocks = []
-        for i in range(nr_blocks):
-            blocks.append(_BottleneckBlock(in_channels+i*growth_rate,
-                                          growth_rate, drop_rate))
-        self.block = nn.Sequential(*blocks)  # * is used to unpack list
-
-    def forward(self, x):
-        return self.block(x)
-
-
-class DenseNet(nn.Module):
-    def __init__(self, block_config=(6, 12, 32, 32), growth_rate=32, drop_rate=0.0, compression=0.5, pretrain=False):
-        super(DenseNet, self).__init__()
-
-        init_channels = 2 * growth_rate
-        self.features = nn.Sequential(OrderedDict([
-            ('conv0', nn.Conv2d(3, init_channels, kernel_size=7, stride=2, padding=3,bias=False)),
-            ('norm0', nn.BatchNorm2d(init_channels)),
-            ('relu0', nn.ReLU(inplace=True)),
-            ('pool0', nn.MaxPool2d(kernel_size=3, stride=2, padding=1))
-        ]))
-
-        nr_channels = init_channels
-        for i, nr_block in enumerate(block_config):
-            dense_block = _DenseBlock(nr_block, nr_channels, growth_rate, drop_rate)
-            self.features.add_module('dense_block{}'.format(i+1), dense_block)
-            nr_channels = nr_channels + nr_block * growth_rate
-            if i != len(block_config) - 1:
-                trans_block = _TransitionBlock(nr_channels, int(nr_channels*compression), drop_rate)
-                self.features.add_module('transition_block{}'.format(i+1), trans_block)
-                nr_channels = int(nr_channels * compression)
-
-        self.features.add_module('norm5', nn.BatchNorm2d(nr_channels))
-
-        self.linear = nn.Linear(nr_channels, 1)
-        #self.linear = nn.Linear(nr_channels, 2)
-
-        if pretrain:
-            self.load_state_dict(torch.load(config.pretrain_model), strict=False)
-        else:
-            # Initialization of Official DenseNet
-            for name, param in self.named_parameters():
-                if 'conv' in name and 'weight' in name:
-                    n = param.size(0) * param.size(2) * param.size(3)
-                    param.data.normal_().mul_(math.sqrt(2. / n))
-                elif 'norm' in name and 'weight' in name:
-                    param.data.fill_(1)
-                elif 'norm' in name and 'bias' in name:
-                    param.data.fill_(0)
-                elif 'classifier' in name and 'bias' in name:
-                    param.data.fill_(0)
-
-    def forward(self, x):
-        features = self.features(x)
-        out = F.relu(features)
-        out = F.avg_pool2d(out, kernel_size=7, stride=1).view(features.size(0), -1)
-        out = F.sigmoid(self.linear(out))
-        #out = F.avg_pool2d(out, kernel_size=1, stride=1).view(features.size(0), -1)
-        #out = F.softmax(self.linear(out), dim=1)
-        return out
-'''
 
 model_urls = {
     'densenet121': 'https://download.pytorch.org/models/densenet121-a639ec97.pth',
@@ -254,13 +148,12 @@ class DenseNet(nn.Module):
     def forward(self, x, required_feature=False):
         features = self.features(x)
         out = F.relu(features, inplace=True)
+        if required_feature == True:
+            return out
         out = F.avg_pool2d(out, kernel_size=7, stride=1).view(features.size(0), -1)
         out = self.classifier(out)
         out = F.sigmoid(out)
-        if required_feature:
-            return out, features
-        else:
-            return out
+        return out
 
 
 def densenet169(pretrained=False, **kwargs):
@@ -291,8 +184,6 @@ def densenet169(pretrained=False, **kwargs):
                 del state_dict[key]
         model.load_state_dict(state_dict, strict=False)
     return model
-
-
 
 
 def conv3x3(in_planes, out_planes, stride=1):
@@ -482,36 +373,36 @@ def resnet101(pretrained=False, **kwargs):
         model.load_state_dict(state_dict, strict=False)
     return model
 
-'''
-def local_gen_(global_features, ori_inputs):
-    # ----- parameters
-    # global features: Tensor of size B * C * 7 * 7
-    # ori_inputs B * 3 * H * W
-    # ----- return value
-    # local_inputs: Tensor of size B * 3 * 224 * 224
-    #               with mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225]
-    #               (this can be done transforms.Normalize(), see dataset.py)
-    pass
-'''
 
-GLOBAL_BRANCH_DIR = '/data1/wurundi/ML/baseline5_resnet50/model/best_model.pth.tar'
-LOCAL_BRANCH_DIR = '/data1/wurundi/ML/baseline5_resnet50_local/model/best_model.pth.tar'
+GLOBAL_BRANCH_DIR = '/data1/wurundi/ML/resnet50_b64/model/best_model.pth.tar'
+LOCAL_BRANCH_DIR = '/data1/wurundi/ML/resnet50_b64/model/best_model.pth.tar'
+
 
 class fusenet(nn.Module):
     def __init__(self, global_branch=None, local_branch=None, num_features=2048):
         super(fusenet, self).__init__()
-        self.global_branch = resnet50()
-        self.global_branch.load_state_dict(global_branch)
-        self.local_branch = resnet50()
-        self.local_branch.load_state_dict(local_branch)
-        #self.local_gen = local_gen
+        self.global_branch = global_branch
+        self.local_branch = local_branch
         self.classifier = nn.Linear(2*num_features, 1)
 
-    def forward(self, x, ori_filepaths):
+        self.feature = None
+        self.fc_weights = self.global_branch.module.fc.weight.data.cpu().numpy().reshape((1,-1,1,1))
+
+        def func_f(module, input, output):
+            self.feature = output.data.cpu().numpy()
+
+        self.global_branch.module.layer4.register_forward_hook(func_f)
+
+    ''' for whole training
+    def forward(self, x):
         g_features = self.global_branch(x, required_feature=True)
 
-        local_x = generate_local(g_features, ori_filepaths)
+        #cam_feature = get_cam_feature(self.feature, self.fc_weights)
+        cam_feature = self.get_cam_feature()
+
+        local_x = generate_local(cam_feature, x)
         #g_features = F.relu(g_features, inplace=True)
+
         g_features = F.avg_pool2d(g_features, kernel_size=7, stride=1).view(g_features.size(0), -1)
 
         l_features = self.local_branch(local_x, required_feature=True)
@@ -521,39 +412,63 @@ class fusenet(nn.Module):
         out = self.classifier(torch.cat([g_features, l_features], 1))
         out = F.sigmoid(out)
         return out
-
-
-
-def main():
     '''
-    global_branch = torch.load(GLOBAL_BRANCH_DIR)['net'].module.children()
 
-    #net = fusenet(global_branch, local_branch)
+    def forward(self, x):
+        """
+        this is for local branch training
+        :param x:
+        :return:
+        """
+        g_features = self.global_branch(x, required_feature=True)
 
-    layer = []
-    for i, m in enumerate(global_branch):
-        if i > 7:
-            break
-        layer.append(m)
+        # cam_feature = get_cam_feature(self.feature, self.fc_weights)
+        cam_feature = self.get_cam_feature()
 
-    model = nn.Sequential(*layer)
+        local_x = generate_local(cam_feature, x)
 
-    torch.save(model, '/data1/wurundi/ML/baseline5_resnet50/model/best_features.pth.tar')
+        out = self.local_branch(local_x, required_feature=False)
+        return out
 
-    local_branch = torch.load(LOCAL_BRANCH_DIR)['net'].module.children()
-    layer = []
-    for i, m in enumerate(local_branch):
-        if i > 7:
-            break
-        layer.append(m)
+    def get_cam_feature(self):
+        """
+        :param g_features: global_branch's feature numpy array of shape (B, C, 7, 7)
+        :param fc_weights: weights of fc layer, shape=(1, C, 1, 1)
+        :return:
+        """
+        #fc_weights = fc_weights.reshape((1, -1, 1, 1))
+        cam = np.sum(self.fc_weights * self.feature, axis=1)
 
-    model = nn.Sequential(*layer)
-    torch.save(model, '/data1/wurundi/ML/baseline5_resnet50_local/model/best_features.pth.tar')
-    '''
-    global_branch = torch.load(GLOBAL_BRANCH_DIR)['net'].module.state_dict()
-    local_branch = torch.load(LOCAL_BRANCH_DIR)['net'].module.state_dict()
+        out = [np.zeros((224, 224), dtype=np.float32)] * self.feature.shape[0]
+
+        for j in range(cam.shape[0]):
+            out[j] = cv2.resize(cam[j], (224, 224))
+            out[j] = (out[j] - np.min(out[j])) / (np.max(out[j]) - np.min(out[j]))
+
+            #out[j] = np.uint8(out[j] * 255)
+
+        out = np.stack(out)
+        return out
+
+
+def test():
+    global_branch = torch.load(GLOBAL_BRANCH_DIR)['net'] #.module.state_dict()
+    local_branch = torch.load(LOCAL_BRANCH_DIR)['net'] #.module.state_dict()
     net = fusenet(global_branch, local_branch)
-    print(net)
+
+    net = torch.nn.DataParallel(net).cuda()
+
+    dataloader = get_dataloaders('valid', batch_size=8, shuffle=True, num_workers=8)
+
+    _, data = next(enumerate(dataloader))
+    inputs = data['image']
+
+    #ori_filename = data['meta_data']['img_filename']
+    inputs = inputs.to(config.device)
+
+    with torch.no_grad():
+        out = net(inputs)
+
 
 if __name__ == '__main__':
-    main()
+    test()
