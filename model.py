@@ -13,7 +13,7 @@ import re
 import numpy as np
 import cv2
 from dataset import get_dataloaders
-from localize import Trans, invTrans, generate_local
+from locate import Trans, invTrans, generate_local
 
 
 model_urls = {
