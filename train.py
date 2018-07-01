@@ -5,7 +5,6 @@ from torchvision import models
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import torch.nn.functional as F
 import numpy as np
-import time
 import os
 from tqdm import tqdm
 from tensorboardX import SummaryWriter
@@ -13,7 +12,7 @@ import argparse
 from model import densenet169, resnet50, resnet101, fusenet,\
     GLOBAL_BRANCH_DIR, LOCAL_BRANCH_DIR
 from common import config
-from utils import TrainClock, save_args, AverageMeter,AUCMeter
+from utils import TrainClock, save_args, AverageMeter, AUCMeter
 from dataset import get_dataloaders
 from dataset import calc_data_weights
 
@@ -21,7 +20,6 @@ torch.backends.cudnn.benchmark = True
 LOSS_WEIGHTS = calc_data_weights()
 
 class Session:
-
     def __init__(self, config, net=None):
         self.log_dir = config.log_dir
         self.model_dir = config.model_dir
@@ -69,9 +67,7 @@ def train_model(train_loader, model, criterion, optimizer, epoch):
 
         # update loss metric
         loss = F.binary_cross_entropy(outputs, labels.float(), weights)
-        # loss = criterion(outputs, labels)
         losses.update(loss.item(), inputs.size(0))
-
         corrects = torch.sum(preds.view_as(labels) == labels.float().data)
         acc = corrects.item() / inputs.size(0)
         accs.update(acc, inputs.size(0))
@@ -93,7 +89,6 @@ def train_model(train_loader, model, criterion, optimizer, epoch):
     }
     return outspects
 
-# original validation function
 def valid_model(valid_loader, model, criterion, optimizer, epoch):
     # using model to predict, based on dataloader
     losses = AverageMeter('epoch_loss')
@@ -161,18 +156,15 @@ def valid_model(valid_loader, model, criterion, optimizer, epoch):
     total_samples = 0
 
     for st in config.study_type:
-        #print(st+' acc:{:.4f}'.format(avg_corrects[st]))
         total_corrects += st_corrects[st]
         total_samples += nr_stype[st]
 
     # acc for the whole dataset
     total_acc = total_corrects / total_samples
-    #print('total acc:{:.4f}'.format(total_corrects / total_samples))
 
     # auc value
     final_scores = [np.mean(study_out[x]) for x in study_out.keys()]
     auc_output = np.array(final_scores)
-    #auc_output = np.array(list(study_out.values()))
     auc_target = np.array(list(study_label.values()))
     auc.add(auc_output, auc_target)
 
@@ -199,9 +191,7 @@ def main():
     parser.add_argument('--drop_rate', default=0, type=float, required=False)
     parser.add_argument('--only_fc', action='store_true', help='only train fc layers')
     parser.add_argument('--net', default='densenet169', type=str, required=False)
-    parser.add_argument('--local', action='store_true', help='train local branch')
     args = parser.parse_args()
-    print(args)
 
     config.exp_name = args.exp_name
     config.make_dir()
@@ -231,10 +221,10 @@ def main():
 
     # get dataloader
     train_loader = get_dataloaders('train', batch_size=args.batch_size,
-                                   shuffle=True, is_local=args.local)
+                                   shuffle=True)
 
     valid_loader = get_dataloaders('valid', batch_size=args.batch_size,
-                                   shuffle=False, is_local=args.local)
+                                   shuffle=False)
 
     if args.continue_path and os.path.exists(args.continue_path):
         sess.load_checkpoint(args.continue_path)

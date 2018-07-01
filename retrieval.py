@@ -12,10 +12,9 @@ import h5py
 
 
 Trans = transforms.Compose([
-        transforms.Resize((256, 2256)),
+        transforms.Resize((256, 256)),
         transforms.CenterCrop(224),
         transforms.ToTensor(),
-        # transforms.Normalize([0.2056, 0.2056, 0.2056], [0.0313, 0.0313, 0.0313])
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
@@ -27,7 +26,6 @@ def get_code(model, query_input):
     :return: feature code for the image
     '''
     inputs = Trans(query_input).unsqueeze(0)
-    print('input size', inputs.size())
     model.eval()
     with torch.no_grad():
         feature = model(inputs, required_feature=True)
@@ -62,8 +60,9 @@ def generate_database(model, dataloader, save_dir):
             codes = F.avg_pool2d(features, kernel_size=7)
             codes = codes.view(codes.size(0), -1).cpu().numpy()
 
-        data_codes.append(codes)
+        data_codes += [codes]
         data_filenames += img_filename
+
 
     data_codes = np.concatenate(data_codes)
 
@@ -74,12 +73,12 @@ def generate_database(model, dataloader, save_dir):
         asciiList = [n.encode("ascii", "ignore") for n in data_filenames]
         f.create_dataset('filenames', shape=(len(asciiList), 1), data=asciiList)
 
-        print('database is generatred with shape:', f['codes'].shape)
+        print('database is generatred.')
 
     return
 
 
-def retrieval(query_input, model, database):
+def retrieval(query_input, model, database, type):
     '''
     :param query_input: input image for query
     :param model: the model to get feature (code)
@@ -87,35 +86,40 @@ def retrieval(query_input, model, database):
     :return: top 5 data entry that is similar to input
     '''
     code = get_code(model, query_input)
-    print('code shape', code.shape)
     codes = np.array(database['codes'][:])
-    print('codes shape', codes.shape)
     filenames = np.array(database['filenames'][:])
-
     dist = []
-    pbar = tqdm(codes)
-    for _, c in enumerate(pbar):
+    for _, c in enumerate(codes):
         dist.append(np.linalg.norm(code - c))
 
     dist = np.array(dist)
-    top5_index = np.argsort(dist)[:5]
-    print('top5_index', top5_index)
-
-    top5_filenames = filenames[top5_index]
-    print('top5 filenames:', top5_filenames)
-    print('top5 distance:', dist[top5_index])
+    rank = np.argsort(dist)
+    cnt = 0
+    outcome = []
+    if type == 'ALL':
+        outcome = rank[:5]
+    else:
+        for index in rank:
+            if type in str(filenames[index]):
+                outcome += [index]
+                cnt += 1
+                if cnt == 5:
+                    break
+    top5_filenames = filenames[outcome]
+    return top5_filenames
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-m', '--model_path', type=str, required=True, help='filepath of the model')
+    parser.add_argument('-m', '--model_path', default='/data1/wurundi/ML/resnet50_b16/model/best_model.pth.tar', type=str, required=False, help='filepath of the model')
     parser.add_argument('-d', '--database_path', type=str, required=False, help='filepath of the database',
                         default='/data1/wurundi/ML/data/database.hdf5')
     parser.add_argument('--save_dir', type=str, help='directory to write result database.json',
                         default='/data1/wurundi/ML/data')
     parser.add_argument('--generate', action='store_true', help='generate database')
-    parser.add_argument('-b', '--batch_size', default=32, type=int, help='mini-batch size')
-    parser.add_argument('--img_path', type=str, required=False, help='filepath of query input')
+    parser.add_argument('-b', '--batch_size', default=1, type=int, help='mini-batch size')
+    parser.add_argument('--img_path', type=str, required=True, help='filepath of query input')
+    parser.add_argument('--img_type', default='ALL', type=str, required=False, choices = ['ELBOW', 'FINGER', 'FOREARM', 'HAND', 'HUMERUS', 'SHOULDER', 'WRIST', 'ALL'], help='type of query input')
     args = parser.parse_args()
 
     net = torch.load(args.model_path)['net']
@@ -129,5 +133,12 @@ if __name__ == '__main__':
 
     image = Image.open(args.img_path).convert('RGB')
 
-    retrieval(image, net, database)
-
+    top5 = retrieval(image, net, database, args.img_type)
+    print("The most similar five are:")
+    i = 0
+    for path in top5:
+        i += 1
+        print(path.item())
+        path = os.path.join(args.save_dir, str(path.item())[2:-1])
+        image = Image.open(path).convert('RGB')
+        image.save(args.img_path[:-4] + str(i) + '.png')
