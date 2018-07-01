@@ -6,6 +6,7 @@ from dataset import get_dataloaders
 from utils import AUCMeter
 import numpy as np
 import os
+from model import fusenet, GLOBAL_BRANCH_DIR, LOCAL_BRANCH_DIR
 from model import resnet50
 
 def predict(model, dataloader):
@@ -81,11 +82,22 @@ def predict(model, dataloader):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-m', '--model_path', type=str, required=True, help='filepath of the model')
-    parser.add_argument('--save_dir', type=str, required=True, help='directory to write result')
+    parser.add_argument('--data_dir', default=config.data_dir, type=str, help='parent directory of MURA-v1.0')
+    parser.add_argument('--save_dir', default='results', type=str, required=True, help='directory to write result')
+    parser.add_argument('--phase', default='valid', type=str, choices=['valid', 'test'])
     parser.add_argument('-b', '--batch_size', default=32, type=int, help='mini-batch size')
     args = parser.parse_args()
 
-    net = torch.load(args.model_path)['net']
+    if 'fuse' in args.model_path:
+        state_dict = torch.load(args.model_path)
+        net = fusenet()
+        net.load_state_dict(state_dict)
+        net.set_fcweights()
+        net = torch.nn.DataParallel(net).cuda()
 
-    dataloader = get_dataloaders('valid', batch_size=args.batch_size, shuffle=False)
+    else:
+        net = torch.load(args.model_path)
+        net = torch.nn.DataParallel(net).cuda()
+
+    dataloader = get_dataloaders(args.phase, batch_size=args.batch_size, shuffle=False)
     predict(net,dataloader)

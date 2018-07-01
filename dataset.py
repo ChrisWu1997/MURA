@@ -111,7 +111,7 @@ class MURA_Dataset(Dataset):
         return sample
 
 
-def get_dataloaders(name, batch_size, shuffle, num_workers=32, is_local=False):
+def get_dataloaders(name, batch_size, shuffle, num_workers=32, data_dir=config.data_dir):
     data_transforms = {
         'train': transforms.Compose([
             transforms.Resize((256, 256)),
@@ -132,12 +132,9 @@ def get_dataloaders(name, batch_size, shuffle, num_workers=32, is_local=False):
         ]),
     }
 
-    if is_local == False:
-        image_dataset = MURA_Dataset(data_dir=config.data_dir, csv_file='MURA-v1.0/%s.csv'%(name),
+    image_dataset = MURA_Dataset(data_dir=data_dir, csv_file='MURA-v1.0/%s.csv'%(name),
                                      transform=data_transforms[name])
-    else:
-        image_dataset = MURA_Dataset(data_dir=config.data_dir, csv_file='local_data/%s.csv' % (name),
-                                     transform=data_transforms[name])
+
     dataloader = DataLoader(image_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
     #data_weights = {x : image_dataset[x].data_weights for x in ['train', 'valid']}
 

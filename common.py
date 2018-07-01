@@ -10,7 +10,6 @@ class Config:
     exp_dir = os.path.join('/data1/wurundi/ML/', exp_name)
     log_dir = os.path.join(exp_dir, 'log/')
     model_dir = os.path.join(exp_dir, 'model/')
-    pretrain_model = '/data1/wurundi/ML/model/densenet169-b2777c0a.pth'
     study_type = ['ELBOW', 'FINGER', 'FOREARM', 'HAND', 'HUMERUS', 'SHOULDER', 'WRIST']
 
     def make_dir(self):
