@@ -199,9 +199,10 @@ def main():
     parser.add_argument('-b', '--batch_size', default=64, type=int, help='mini-batch size')
     parser.add_argument('--lr', '--learning_rate', default=1e-4, type=float, help='initial learning rate')
     parser.add_argument('-c', '--continue', dest='continue_path', type=str, required=False)
+    parser.add_argument('--state_dict', default=None, type=str, required=False,
+                        help='state_dict when doing full training ')
     parser.add_argument('--exp_name', default=config.exp_name, type=str, required=False)
     parser.add_argument('--drop_rate', default=0, type=float, required=False)
-    parser.add_argument('--only_fc', action='store_true', help='only train fc layers')
     parser.add_argument('--local', action='store_true', help='train local branch')
     args = parser.parse_args()
     print(args)
@@ -211,20 +212,26 @@ def main():
     save_args(args, config.log_dir)
 
     # get network
-    global_branch = torch.load(GLOBAL_BRANCH_DIR)['net']
-    local_branch = torch.load(LOCAL_BRANCH_DIR)['net']
-    local_branch = torch.nn.DataParallel(local_branch).cuda()
-    net = fusenet(global_branch, local_branch)
+    if args.state_dict is not None:
+        state_dict = torch.load(args.state_dict)
+        net = fusenet()
+        net.load_state_dict(state_dict)
+        net.set_fcweights()
+    else:
+        global_branch_state= torch.load(GLOBAL_BRANCH_DIR)
+        local_branch_state = torch.load(LOCAL_BRANCH_DIR)
+        net = fusenet(global_branch_state, local_branch_state)
 
-    net = torch.nn.DataParallel(net).cuda()
+    #net = torch.nn.DataParallel(net).cuda()
+    net.to(config.device)
     sess = Session(config, net=net)
 
     # get dataloader
     train_loader = get_dataloaders('train', batch_size=args.batch_size,
-                                   shuffle=True, is_local=args.local)
+                                   shuffle=True)
 
     valid_loader = get_dataloaders('valid', batch_size=args.batch_size,
-                                   shuffle=False, is_local=args.local)
+                                   shuffle=False)
 
     if args.continue_path and os.path.exists(args.continue_path):
         sess.load_checkpoint(args.continue_path)
@@ -237,10 +244,10 @@ def main():
     # set criterion, optimizer and scheduler
     criterion = nn.BCELoss().cuda()
 
-    if args.only_fc == True:
-        optimizer = optim.Adam(sess.net.module.classifier.parameters(), args.lr)
-    else:
+    if args.local == True:  #train local branch
         optimizer = optim.Adam(sess.net.module.local_branch.parameters(), args.lr)
+    else:   # train final fc layer
+        optimizer = optim.Adam(sess.net.classifier.parameters(), args.lr)
 
     scheduler = ReduceLROnPlateau(optimizer, 'max', factor=0.1,  patience=10, verbose=True)
 

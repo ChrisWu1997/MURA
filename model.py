@@ -28,21 +28,7 @@ model_urls = {
     'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth',
 }
 
-class network(nn.Module):
-    def __init__(self):
-        super(network, self).__init__()
-        self.features = torchvision.models.densenet169(pretrained=True).features
-        self.classifier = nn.Linear(1664, 1)
-
-    def forward(self, x):
-        features = self.features(x)
-        out = F.relu(features, inplace=True)
-        out = F.avg_pool2d(out, kernel_size=7, stride=1).view(features.size(0), -1)
-        out = self.classifier(out)
-        out = F.sigmoid(out)
-        return out
-
-
+# densenet modules
 class _DenseLayer(nn.Sequential):
     def __init__(self, num_input_features, growth_rate, bn_size, drop_rate, drop_mode=1):
         super(_DenseLayer, self).__init__()
@@ -185,7 +171,7 @@ def densenet169(pretrained=False, **kwargs):
         model.load_state_dict(state_dict, strict=False)
     return model
 
-
+# resnet modules
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
@@ -374,46 +360,61 @@ def resnet101(pretrained=False, **kwargs):
     return model
 
 
-GLOBAL_BRANCH_DIR = '/data1/wurundi/ML/resnet50_b64/model/best_model.pth.tar'
-LOCAL_BRANCH_DIR = '/data1/wurundi/ML/resnet50_b64/model/best_model.pth.tar'
+GLOBAL_BRANCH_DIR = '/data1/wurundi/ML/state_dicts/resnet50_b16_state_dict.pth.tar'
+LOCAL_BRANCH_DIR = '/data1/wurundi/ML/state_dicts/resnet50_b16_state_dict.pth.tar'
 
-
+# attention guided CNN using resnet50 as backbone
 class fusenet(nn.Module):
-    def __init__(self, global_branch=None, local_branch=None, num_features=2048):
+    def __init__(self, global_branch=None,
+                 local_branch=None, num_features=2048):
         super(fusenet, self).__init__()
-        self.global_branch = global_branch
-        self.local_branch = local_branch
+        self.global_branch = resnet50()
+        if global_branch is not None:
+            self.global_branch.load_state_dict(global_branch)
+
+        self.local_branch = resnet50()
+        if local_branch is not None:
+            self.local_branch.load_state_dict(local_branch)
+
         self.classifier = nn.Linear(2*num_features, 1)
 
         self.feature = None
-        self.fc_weights = self.global_branch.module.fc.weight.data.cpu().numpy().reshape((1,-1,1,1))
+        self.fc_weights = self.global_branch.fc.weight.data.cpu().numpy().reshape((1,-1,1,1))
 
         def func_f(module, input, output):
             self.feature = output.data.cpu().numpy()
 
-        self.global_branch.module.layer4.register_forward_hook(func_f)
+        self.global_branch.layer4.register_forward_hook(func_f)
 
-    ''' for whole training
+    def set_fcweights(self):
+        self.fc_weights = self.global_branch.fc.weight.data.cpu().numpy().reshape((1, -1, 1, 1))
+
+
     def forward(self, x):
+        """
+        this is for whole model training
+        :param x:
+        :return:
+        """
         g_features = self.global_branch(x, required_feature=True)
 
-        #cam_feature = get_cam_feature(self.feature, self.fc_weights)
         cam_feature = self.get_cam_feature()
 
-        local_x = generate_local(cam_feature, x)
-        #g_features = F.relu(g_features, inplace=True)
+        x_ = x.clone()
+        local_x = generate_local(cam_feature, x_)
+        local_x = local_x.to(config.device)
 
         g_features = F.avg_pool2d(g_features, kernel_size=7, stride=1).view(g_features.size(0), -1)
 
         l_features = self.local_branch(local_x, required_feature=True)
-        #l_features = F.relu(l_features, inplace=True)
         l_features = F.avg_pool2d(l_features, kernel_size=7, stride=1).view(l_features.size(0), -1)
 
-        out = self.classifier(torch.cat([g_features, l_features], 1))
+        out = torch.cat([g_features, l_features], 1)
+        out = self.classifier(out)
         out = F.sigmoid(out)
         return out
-    '''
 
+    '''
     def forward(self, x):
         """
         this is for local branch training
@@ -422,13 +423,14 @@ class fusenet(nn.Module):
         """
         g_features = self.global_branch(x, required_feature=True)
 
-        # cam_feature = get_cam_feature(self.feature, self.fc_weights)
         cam_feature = self.get_cam_feature()
 
         local_x = generate_local(cam_feature, x)
+        local_x = local_x.to(config.device)
 
         out = self.local_branch(local_x, required_feature=False)
         return out
+    '''
 
     def get_cam_feature(self):
         """
