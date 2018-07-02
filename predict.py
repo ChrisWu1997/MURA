@@ -9,7 +9,7 @@ import os
 from model import fusenet, GLOBAL_BRANCH_DIR, LOCAL_BRANCH_DIR
 from model import resnet50
 
-def predict(model, dataloader):
+def get_scores(model, dataloader):
     # using model to predict, based on dataloader
     model.eval()
 
@@ -39,6 +39,7 @@ def predict(model, dataloader):
             else:
                 study_out[encounter[i]] += [outputs[i].item()]
 
+
     # study level prediction
     study_preds = {x:(np.mean(study_out[x]) > 0.5) == study_label[x] for x in study_out.keys()}
     #study_preds = {x:study_preds[x] == study_label[x] for x in study_out.keys()}
@@ -47,23 +48,19 @@ def predict(model, dataloader):
         st_corrects[x[:x.find('_')]] += study_preds[x]
 
     # acc for each study type
-    print('st_corrects:', st_corrects)
-    print('nr_stype', nr_stype)
     avg_corrects = {st:st_corrects[st] / nr_stype[st] for st in config.study_type}
 
     total_corrects = 0
     total_samples = 0
-    f = open(os.path.join(args.save_dir, 'result.txt'), 'w')
+
     for st in config.study_type:
         print(st+' acc:{:.4f}'.format(avg_corrects[st]))
-        f.write(st+' acc:{:.4f}\n'.format(avg_corrects[st]))
         total_corrects += st_corrects[st]
         total_samples += nr_stype[st]
 
     # acc for the whole dataset
     print('total acc:{:.4f}'.format(total_corrects / total_samples))
-    f.write('total acc:{:.4f}\n'.format(total_corrects / total_samples))
-
+    
     # auc value
     final_scores = [np.mean(study_out[x]) for x in study_out.keys()]
     auc_output = np.array(final_scores)
@@ -72,32 +69,56 @@ def predict(model, dataloader):
     auc.add(auc_output, auc_target)
 
     auc_val, tpr, fpr = auc.value()
-    auc.draw_roc_curve(os.path.join(args.save_dir, 'ROC_curve.png'))
+    #auc.draw_roc_curve(os.path.join(args.save_dir, 'ROC_curve.png'))
     print('AUC:{:.4f}'.format(auc_val))
-    f.write('AUC:{:.4f}\n'.format(auc_val))
 
-    f.close()
+    return study_out, study_label
 
+
+model_list = ['models/resnet50_b16.pth.tar',
+              #'/data1/wurundi/ML/resnet50_b32/model/best_model.pth.tar',
+              'models/densenet169_b64.pth.tar',
+              'models/densenet169_b32.pth.tar',
+              'models/densenet169_b16.pth.tar',
+              ]
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-m', '--model_path', type=str, required=True, help='filepath of the model')
-    parser.add_argument('--data_dir', default=config.data_dir, type=str, help='parent directory of MURA-v1.0')
-    parser.add_argument('--save_dir', default='results', type=str, required=True, help='directory to write result')
+    parser.add_argument('--data_dir', default=config.data_dir, type=str,
+                        help='parent directory of MURA-v1.0')
+    parser.add_argument('--save_dir', default='results', type=str,
+                        help='parent directory to write result')
     parser.add_argument('--phase', default='valid', type=str, choices=['valid', 'test'])
-    parser.add_argument('-b', '--batch_size', default=32, type=int, help='mini-batch size')
+    parser.add_argument('-b', '--batch_size', default=16, type=int, help='mini-batch size')
     args = parser.parse_args()
 
-    if 'fuse' in args.model_path:
-        state_dict = torch.load(args.model_path)
-        net = fusenet()
-        net.load_state_dict(state_dict)
-        net.set_fcweights()
-        net = torch.nn.DataParallel(net).cuda()
+    dataloader = get_dataloaders(args.phase, batch_size=args.batch_size, shuffle=False, data_dir=args.data_dir)
+    total_scores = None
+    labels = None
+    for j in range(len(model_list)):
+        print('single model ' + str(j))
+        net = torch.load(model_list[j])['net']
+        score, labels = get_scores(net, dataloader)
+        if j == 0:
+            total_scores = {x:score[x] for x in score.keys()}
+        else:
+            total_scores = {x:total_scores[x] + score[x] for x in total_scores.keys()}
+        del net
+        print('-' * 20)
 
-    else:
-        net = torch.load(args.model_path)
-        net = torch.nn.DataParallel(net).cuda()
+    # calculate voting classifier's auc
+    auc = AUCMeter()
+    final_scores = [np.mean(total_scores[x]) for x in total_scores.keys()]
+    auc_output = np.array(final_scores)
+    # auc_output = np.array(list(study_out.values()))a
+    auc_target = np.array(list(labels.values()))
+    auc.add(auc_output, auc_target)
 
-    dataloader = get_dataloaders(args.phase, batch_size=args.batch_size, shuffle=False)
-    predict(net,dataloader)
+    auc_val, tpr, fpr = auc.value()
+    auc.draw_roc_curve(os.path.join(args.save_dir, 'ROC_curve.png'))
+
+    print('VOTING AUC:{:.4f}'.format(auc_val))
+    print('-' * 20)
+
+    f = open(os.path.join(args.save_dir, 'result_auc.txt'), 'w')
+    f.write('AUC:{:.4f}\n'.format(auc_val))

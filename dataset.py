@@ -85,7 +85,7 @@ class MURA_Dataset(Dataset):
         return sample
 
 
-def get_dataloaders(name, batch_size, shuffle, num_workers=32):
+def get_dataloaders(name, batch_size, shuffle, num_workers=32, data_dir=config.data_dir):
     """
     :param name: the phase for transforms
     :param batch_size: the size of an batch
@@ -97,6 +97,7 @@ def get_dataloaders(name, batch_size, shuffle, num_workers=32):
         'train': transforms.Compose([
             transforms.Resize((256, 256)),
             transforms.RandomResizedCrop(224),
+            #transforms.CenterCrop(224),
             transforms.RandomHorizontalFlip(),
             transforms.RandomRotation(30),
             transforms.ToTensor(),
@@ -108,8 +109,14 @@ def get_dataloaders(name, batch_size, shuffle, num_workers=32):
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ]),
+        'test': transforms.Compose([
+            transforms.Resize((256, 256)),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ]),
     }
-    image_dataset = MURA_Dataset(data_dir=config.data_dir, csv_file='MURA-v1.0/%s.csv' % name,
+    image_dataset = MURA_Dataset(data_dir=data_dir, csv_file='MURA-v1.0/%s.csv' % name,
                                  transform=data_transforms[name])
     dataloader = DataLoader(image_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
 
