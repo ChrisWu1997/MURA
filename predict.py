@@ -6,11 +6,24 @@ from dataset import get_dataloaders
 from utils import AUCMeter
 import numpy as np
 import os
-from model import fusenet, GLOBAL_BRANCH_DIR, LOCAL_BRANCH_DIR
-from model import resnet50
+from model import resnet50, densenet169
+
+
+model_list = ['models/resnet50_b16.pth.tar',
+              #'/data1/wurundi/ML/resnet50_b32/model/best_model.pth.tar',
+              'models/densenet169_b64.pth.tar',
+              'models/densenet169_b32.pth.tar',
+              'models/densenet169_b16.pth.tar',
+              ]
+
 
 def get_scores(model, dataloader):
+    """
     # using model to predict, based on dataloader
+    :param model: the model to be tested on
+    :param dataloader: suppose to be 'valid' or 'test' dataloader
+    :return: the predict scores at study level
+    """
     model.eval()
 
     st_corrects = {st:0 for st in config.study_type}
@@ -74,13 +87,6 @@ def get_scores(model, dataloader):
 
     return study_out, study_label
 
-
-model_list = ['models/resnet50_b16.pth.tar',
-              #'/data1/wurundi/ML/resnet50_b32/model/best_model.pth.tar',
-              'models/densenet169_b64.pth.tar',
-              'models/densenet169_b32.pth.tar',
-              'models/densenet169_b16.pth.tar',
-              ]
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
