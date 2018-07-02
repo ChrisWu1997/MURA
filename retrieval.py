@@ -20,11 +20,11 @@ Trans = transforms.Compose([
 
 
 def get_code(model, query_input):
-    '''
+    """
     :param model: the model to generate feature code
     :param query_input: PIL image for query
     :return: feature code for the image
-    '''
+    """
     inputs = Trans(query_input).unsqueeze(0)
     model.eval()
     with torch.no_grad():
@@ -35,7 +35,7 @@ def get_code(model, query_input):
 
 
 def generate_database(model, dataloader, save_dir):
-    '''
+    """
     :param model: model to generate feature code
     :param dataloader: dataloader to get dataset
     :param save_dir: the directory to save database.json
@@ -44,7 +44,7 @@ def generate_database(model, dataloader, save_dir):
                                     'codes': codes}
                  ...
                 }
-    '''
+    """
     data_codes = []
     data_filenames = []
 
@@ -62,8 +62,6 @@ def generate_database(model, dataloader, save_dir):
 
         data_codes += [codes]
         data_filenames += img_filename
-
-
     data_codes = np.concatenate(data_codes)
 
     if save_dir is not None:
@@ -79,12 +77,12 @@ def generate_database(model, dataloader, save_dir):
 
 
 def retrieval(query_input, model, database, type):
-    '''
+    """
     :param query_input: input image for query
     :param model: the model to get feature (code)
     :param database: the code database to look up, of form hdf5
     :return: top 5 data entry that is similar to input
-    '''
+    """
     code = get_code(model, query_input)
     codes = np.array(database['codes'][:])
     filenames = np.array(database['filenames'][:])
@@ -111,7 +109,8 @@ def retrieval(query_input, model, database, type):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-m', '--model_path', default='/data1/wurundi/ML/resnet50_b16/model/best_model.pth.tar', type=str, required=False, help='filepath of the model')
+    parser.add_argument('-m', '--model_path', default='/data1/wurundi/ML/final_models/resnet50_b16.pth.tar',
+                        type=str, required=False, help='filepath of the model')
     parser.add_argument('-d', '--database_path', type=str, required=False, help='filepath of the database',
                         default='/data1/wurundi/ML/data/database.hdf5')
     parser.add_argument('--save_dir', type=str, help='directory to write result database.json',
@@ -119,17 +118,20 @@ if __name__ == '__main__':
     parser.add_argument('--generate', action='store_true', help='generate database')
     parser.add_argument('-b', '--batch_size', default=1, type=int, help='mini-batch size')
     parser.add_argument('--img_path', type=str, required=True, help='filepath of query input')
-    parser.add_argument('--img_type', default='ALL', type=str, required=False, choices = ['ELBOW', 'FINGER', 'FOREARM', 'HAND', 'HUMERUS', 'SHOULDER', 'WRIST', 'ALL'], help='type of query input')
+    parser.add_argument('--img_type', default='ALL', type=str, required=False,
+                        choices=['ELBOW', 'FINGER', 'FOREARM', 'HAND', 'HUMERUS', 'SHOULDER', 'WRIST', 'ALL'],
+                        help='type of query input')
     args = parser.parse_args()
 
-    net = torch.load(args.model_path)['net']
+    net = torch.load(args.model_path)
+    net = torch.nn.DataParallel(net).cuda()
 
     if args.generate is True:
         dataloader = get_dataloaders('train', batch_size=args.batch_size, shuffle=False)
 
         generate_database(net, dataloader, args.save_dir)
 
-    database = h5py.File(args.database_path,'r')
+    database = h5py.File(args.database_path, 'r')
 
     image = Image.open(args.img_path).convert('RGB')
 
