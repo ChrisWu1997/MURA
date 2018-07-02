@@ -1,3 +1,7 @@
+"""
+Demo: python3 locate.py --img_path=results/localize_result/elbow.png
+"""
+
 import cv2
 import numpy as np
 import torch
@@ -189,7 +193,7 @@ def generate_local(cam_features, inputs):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-m', '--model_path', default='/data1/wurundi/ML/resnet50_b16/model/best_model.pth.tar', type=str, required=False, help='filepath of the model')
+    parser.add_argument('-m', '--model_path', default='models/resnet50_b16.pth.tar', type=str, required=False, help='filepath of the model')
     parser.add_argument('--img_path', type=str, required=False, help='filepath of query input')
     args = parser.parse_args()
 
