@@ -1,9 +1,12 @@
 import os
 import json
+import torch
 import numpy as np
+import numbers
 import matplotlib
 matplotlib.use('agg')
 import matplotlib.pyplot as plt
+
 
 class TrainClock(object):
     def __init__(self):
@@ -31,7 +34,17 @@ class TrainClock(object):
         self.minibatch = clock_dict['minibatch']
         self.step = clock_dict['step']
 
+
+def save_args(args, save_dir):
+    param_path = os.path.join(save_dir, 'params.json')
+
+    with open(param_path, 'w') as fp:
+        json.dump(args.__dict__, fp, indent=4, sort_keys=True)
+
+
 class AverageMeter(object):
+    """Computes and stores the average and current value"""
+
     def __init__(self, name):
         self.name = name
         self.reset()
@@ -48,7 +61,10 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 
+
 class AverageMeters(object):
+    """Computes and stores multiple the average and current value"""
+
     def __init__(self, metrics_name):
         self.metrics = {}
         for name in metrics_name:
@@ -58,7 +74,22 @@ class AverageMeters(object):
         for k, v in dict.items():
             self.metrics[k].update(v[0], v[1])
 
+
 class AUCMeter():
+    """
+    The AUCMeter measures the area under the receiver-operating characteristic
+    (ROC) curve for binary classification problems. The area under the curve (AUC)
+    can be interpreted as the probability that, given a randomly selected positive
+    example and a randomly selected negative example, the positive example is
+    assigned a higher score by the classification model than the negative example.
+    The AUCMeter is designed to operate on one-dimensional Tensors `output`
+    and `target`, where (1) the `output` contains model output scores that ought to
+    be higher when the model is more convinced that the example should be positively
+    labeled, and smaller when the model believes the example should be negatively
+    labeled (for instance, the output of a signoid function); and (2) the `target`
+    contains only values 0 (for negative examples) and 1 (for positive examples).
+    """
+
     def __init__(self):
         self.reset()
 
@@ -70,6 +101,14 @@ class AUCMeter():
         self.auc = None
 
     def add(self, output, target):
+        """
+        if torch.is_tensor(output):
+            output = output.cpu().squeeze().detach().numpy()
+        if torch.is_tensor(target):
+            target = target.cpu().squeeze().detach().numpy()
+        elif isinstance(target, numbers.Number):
+            target = np.asarray([target])
+        """
         if np.ndim(output) == 0:
             output = [output]
         assert np.ndim(output) == 1, \
@@ -131,10 +170,3 @@ class AUCMeter():
         plt.ylabel('True Positive Rate')
         plt.xlabel('False Positive Rate')
         plt.savefig(savepath)
-
-
-def save_args(args, save_dir):
-    param_path = os.path.join(save_dir, 'params.json')
-
-    with open(param_path, 'w') as fp:
-        json.dump(args.__dict__, fp, indent=4, sort_keys=True)

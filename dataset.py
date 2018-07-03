@@ -97,7 +97,6 @@ def get_dataloaders(name, batch_size, shuffle, num_workers=32, data_dir=config.d
         'train': transforms.Compose([
             transforms.Resize((256, 256)),
             transforms.RandomResizedCrop(224),
-            #transforms.CenterCrop(224),
             transforms.RandomHorizontalFlip(),
             transforms.RandomRotation(30),
             transforms.ToTensor(),

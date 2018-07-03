@@ -1,7 +1,3 @@
-"""
-Demo: python3 locate.py --img_path=results/localize_result/elbow.png
-"""
-
 import cv2
 import numpy as np
 import torch
@@ -23,10 +19,8 @@ Normal = transforms.Compose([
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
-invTrans = transforms.Compose([transforms.Normalize(mean=[0., 0., 0.],
-                                                     std=[1/0.229, 1/0.224, 1/0.225]),
-                                transforms.Normalize(mean=[-0.485, -0.456, -0.406],
-                                                     std=[1., 1., 1.]),
+invTrans = transforms.Compose([transforms.Normalize(mean=[0., 0., 0.], std=[1/0.229, 1/0.224, 1/0.225]),
+                               transforms.Normalize(mean=[-0.485, -0.456, -0.406], std=[1., 1., 1.]),
                                ])
 
 
@@ -51,10 +45,6 @@ def generate_grad_cam(net, ori_image):
 
     net.module.layer4.register_forward_hook(func_f)
     net.module.layer4.register_backward_hook(func_b)
-
-
-    #net.layer4.register_forward_hook(func_f)
-    #net.layer4.register_backward_hook(func_b)
 
     out = net(input_image.unsqueeze(0))
 
@@ -193,7 +183,8 @@ def generate_local(cam_features, inputs):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-m', '--model_path', default='models/resnet50_b16.pth.tar', type=str, required=False, help='filepath of the model')
+    parser.add_argument('-m', '--model_path',
+                        default='models/resnet50_b16.pth.tar', type=str, required=False, help='filepath of the model')
     parser.add_argument('--img_path', type=str, required=False, help='filepath of query input')
     args = parser.parse_args()
 

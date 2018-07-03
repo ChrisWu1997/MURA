@@ -13,12 +13,13 @@ import argparse
 from model import densenet169, resnet50, resnet101, fusenet,\
     GLOBAL_BRANCH_DIR, LOCAL_BRANCH_DIR
 from common import config
-from utils import TrainClock, save_args, AverageMeter,AUCMeter
+from utils import TrainClock, save_args, AverageMeter, AUCMeter
 from dataset import get_dataloaders
 from dataset import calc_data_weights
 
 torch.backends.cudnn.benchmark = True
 LOSS_WEIGHTS = calc_data_weights()
+
 
 class Session:
 
@@ -65,14 +66,11 @@ def train_model(train_loader, model, criterion, optimizer, epoch):
         weights = torch.Tensor(weights).view_as(labels).to(config.device)
 
         # pass this batch through our model and get y_pred
-        #outputs = model(inputs, file_paths)  # this is for fusenet
         outputs = model(inputs)
         preds = (outputs.data > 0.5).type(torch.cuda.FloatTensor)
-        #preds = torch.argmax(outputs, dim=1)
 
         # update loss metric
         loss = F.binary_cross_entropy(outputs, labels.float(), weights)
-        #loss = criterion(outputs, labels)
         losses.update(loss.item(), inputs.size(0))
 
         corrects = torch.sum(preds.view_as(labels) == labels.float().data)
@@ -103,15 +101,15 @@ def valid_model(valid_loader, model, criterion, optimizer, epoch):
     accs = AverageMeter('epoch_acc')
     model.eval()
 
-    st_corrects = {st:0 for st in config.study_type}
-    nr_stype = {st:0 for st in config.study_type}
+    st_corrects = {st: 0 for st in config.study_type}
+    nr_stype = {st: 0 for st in config.study_type}
     study_out = {}  # study level output
-    study_label = {} # study level label
+    study_label = {}  # study level label
     auc = AUCMeter()
 
     # evaluate the model
     pbar = tqdm(valid_loader)
-    for i, data in enumerate(pbar):
+    for k, data in enumerate(pbar):
         inputs = data['image']
         labels = data['label']
         encounter = data['meta_data']['encounter']
@@ -137,7 +135,7 @@ def valid_model(valid_loader, model, criterion, optimizer, epoch):
             acc = corrects.item() / inputs.size(0)
             accs.update(acc, inputs.size(0))
 
-        pbar.set_description("EPOCH[{}][{}/{}]".format(epoch, i, len(valid_loader)))
+        pbar.set_description("EPOCH[{}][{}/{}]".format(epoch, k, len(valid_loader)))
         pbar.set_postfix(
             loss=":{:.4f}".format(losses.avg),
             acc=":{:.4f}".format(accs.avg),
@@ -153,30 +151,27 @@ def valid_model(valid_loader, model, criterion, optimizer, epoch):
                 study_out[encounter[i]] += [outputs[i].item()]
 
     # study level prediction
-    study_preds = {x:(np.mean(study_out[x]) > 0.5) == study_label[x] for x in study_out.keys()}
+    study_preds = {x: (np.mean(study_out[x]) > 0.5) == study_label[x] for x in study_out.keys()}
 
     for x in study_out.keys():
         st_corrects[x[:x.find('_')]] += study_preds[x]
 
     # acc for each study type
-    avg_corrects = {st:st_corrects[st] / nr_stype[st] for st in config.study_type}
+    avg_corrects = {st: st_corrects[st] / nr_stype[st] for st in config.study_type}
 
     total_corrects = 0
     total_samples = 0
 
     for st in config.study_type:
-        #print(st+' acc:{:.4f}'.format(avg_corrects[st]))
         total_corrects += st_corrects[st]
         total_samples += nr_stype[st]
 
     # acc for the whole dataset
     total_acc = total_corrects / total_samples
-    #print('total acc:{:.4f}'.format(total_corrects / total_samples))
 
     # auc value
     final_scores = [np.mean(study_out[x]) for x in study_out.keys()]
     auc_output = np.array(final_scores)
-    #auc_output = np.array(list(study_out.values()))
     auc_target = np.array(list(study_label.values()))
     auc.add(auc_output, auc_target)
 
@@ -218,11 +213,10 @@ def main():
         net.load_state_dict(state_dict)
         net.set_fcweights()
     else:
-        global_branch_state= torch.load(GLOBAL_BRANCH_DIR)
+        global_branch_state = torch.load(GLOBAL_BRANCH_DIR)
         local_branch_state = torch.load(LOCAL_BRANCH_DIR)
         net = fusenet(global_branch_state, local_branch_state)
 
-    #net = torch.nn.DataParallel(net).cuda()
     net.to(config.device)
     sess = Session(config, net=net)
 
@@ -244,7 +238,7 @@ def main():
     # set criterion, optimizer and scheduler
     criterion = nn.BCELoss().cuda()
 
-    if args.local == True:  #train local branch
+    if args.local:  # train local branch
         optimizer = optim.Adam(sess.net.module.local_branch.parameters(), args.lr)
     else:   # train final fc layer
         optimizer = optim.Adam(sess.net.classifier.parameters(), args.lr)
@@ -258,10 +252,10 @@ def main():
         valid_out = valid_model(valid_loader, sess.net,
                                 criterion, optimizer, clock.epoch)
 
-        tb_writer.add_scalars('loss',{'train': train_out['epoch_loss'],
-                                      'valid': valid_out['epoch_loss']}, clock.epoch)
+        tb_writer.add_scalars('loss', {'train': train_out['epoch_loss'],
+                                       'valid': valid_out['epoch_loss']}, clock.epoch)
 
-        tb_writer.add_scalars('acc',{'train': train_out['epoch_acc'],
+        tb_writer.add_scalars('acc', {'train': train_out['epoch_acc'],
                                       'valid': valid_out['epoch_acc']}, clock.epoch)
 
         tb_writer.add_scalar('auc', valid_out['epoch_auc'], clock.epoch)

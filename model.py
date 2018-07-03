@@ -28,6 +28,7 @@ model_urls = {
     'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth',
 }
 
+
 # densenet modules
 class _DenseLayer(nn.Sequential):
     def __init__(self, num_input_features, growth_rate, bn_size, drop_rate, drop_mode=1):
@@ -103,7 +104,7 @@ class DenseNet(nn.Module):
         for i, num_layers in enumerate(block_config):
             if i == 0:
                 block = _DenseBlock(num_layers=num_layers, num_input_features=num_features,
-                                bn_size=bn_size, growth_rate=growth_rate, drop_rate=drop_rate, drop_mode=2)
+                                    bn_size=bn_size, growth_rate=growth_rate, drop_rate=drop_rate, drop_mode=2)
             else:
                 block = _DenseBlock(num_layers=num_layers, num_input_features=num_features,
                                     bn_size=bn_size, growth_rate=growth_rate, drop_rate=drop_rate, drop_mode=1)
@@ -134,7 +135,7 @@ class DenseNet(nn.Module):
     def forward(self, x, required_feature=False):
         features = self.features(x)
         out = F.relu(features, inplace=True)
-        if required_feature == True:
+        if required_feature:
             return out
         out = F.avg_pool2d(out, kernel_size=7, stride=1).view(features.size(0), -1)
         out = self.classifier(out)
@@ -171,6 +172,7 @@ def densenet169(pretrained=False, **kwargs):
         model.load_state_dict(state_dict, strict=False)
     return model
 
+
 # resnet modules
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
@@ -190,8 +192,6 @@ class BasicBlock(nn.Module):
         self.bn2 = nn.BatchNorm2d(planes)
         self.downsample = downsample
         self.stride = stride
-        #self.drop_mode = drop_mode
-        #self.drop_rate = drop_rate
 
     def forward(self, x):
         residual = x
@@ -234,8 +234,6 @@ class Bottleneck(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
-        #self.drop_mode = drop_mode
-        #self.drop_rate = drop_rate
 
     def forward(self, x):
         residual = x
@@ -277,10 +275,10 @@ class ResNet(nn.Module):
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0])#, drop_mode=2, drop_rate=drop_rate)
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)#, drop_mode=1, drop_rate=drop_rate)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)#, drop_mode=1, drop_rate=drop_rate)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)#, drop_mode=1, drop_rate=drop_rate)
+        self.layer1 = self._make_layer(block, 64, layers[0])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
         self.avgpool = nn.AvgPool2d(7, stride=1)
         self.fc = nn.Linear(512 * block.expansion, num_classes)
 
@@ -336,9 +334,7 @@ def resnet50(pretrained=False, **kwargs):
     """
     model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
     if pretrained:
-        #model.load_state_dict(model_zoo.load_url(model_urls['resnet50']), strict=False)
         state_dict = model_zoo.load_url(model_urls['resnet50'])
-        #print(list(state_dict.keys()))
         state_dict.pop('fc.weight')
         state_dict.pop('fc.bias')
         model.load_state_dict(state_dict, strict=False)
@@ -363,6 +359,7 @@ def resnet101(pretrained=False, **kwargs):
 GLOBAL_BRANCH_DIR = '/data1/wurundi/ML/state_dicts/resnet50_b16_state_dict.pth.tar'
 LOCAL_BRANCH_DIR = '/data1/wurundi/ML/state_dicts/resnet50_b16_state_dict.pth.tar'
 
+
 # attention guided CNN using resnet50 as backbone
 class fusenet(nn.Module):
     def __init__(self, global_branch=None,
@@ -379,7 +376,7 @@ class fusenet(nn.Module):
         self.classifier = nn.Linear(2*num_features, 1)
 
         self.feature = None
-        self.fc_weights = self.global_branch.fc.weight.data.cpu().numpy().reshape((1,-1,1,1))
+        self.fc_weights = self.global_branch.fc.weight.data.cpu().numpy().reshape((1, -1, 1, 1))
 
         def func_f(module, input, output):
             self.feature = output.data.cpu().numpy()
@@ -388,7 +385,6 @@ class fusenet(nn.Module):
 
     def set_fcweights(self):
         self.fc_weights = self.global_branch.fc.weight.data.cpu().numpy().reshape((1, -1, 1, 1))
-
 
     def forward(self, x):
         """
@@ -438,7 +434,6 @@ class fusenet(nn.Module):
         :param fc_weights: weights of fc layer, shape=(1, C, 1, 1)
         :return:
         """
-        #fc_weights = fc_weights.reshape((1, -1, 1, 1))
         cam = np.sum(self.fc_weights * self.feature, axis=1)
 
         out = [np.zeros((224, 224), dtype=np.float32)] * self.feature.shape[0]
@@ -447,15 +442,13 @@ class fusenet(nn.Module):
             out[j] = cv2.resize(cam[j], (224, 224))
             out[j] = (out[j] - np.min(out[j])) / (np.max(out[j]) - np.min(out[j]))
 
-            #out[j] = np.uint8(out[j] * 255)
-
         out = np.stack(out)
         return out
 
 
 def test():
-    global_branch = torch.load(GLOBAL_BRANCH_DIR)['net'] #.module.state_dict()
-    local_branch = torch.load(LOCAL_BRANCH_DIR)['net'] #.module.state_dict()
+    global_branch = torch.load(GLOBAL_BRANCH_DIR)['net']
+    local_branch = torch.load(LOCAL_BRANCH_DIR)['net']
     net = fusenet(global_branch, local_branch)
 
     net = torch.nn.DataParallel(net).cuda()
@@ -464,8 +457,6 @@ def test():
 
     _, data = next(enumerate(dataloader))
     inputs = data['image']
-
-    #ori_filename = data['meta_data']['img_filename']
     inputs = inputs.to(config.device)
 
     with torch.no_grad():

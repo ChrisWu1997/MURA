@@ -5,6 +5,7 @@ from torchvision import models
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import torch.nn.functional as F
 import numpy as np
+import time
 import os
 from tqdm import tqdm
 from tensorboardX import SummaryWriter
@@ -19,7 +20,9 @@ from dataset import calc_data_weights
 torch.backends.cudnn.benchmark = True
 LOSS_WEIGHTS = calc_data_weights()
 
+
 class Session:
+
     def __init__(self, config, net=None):
         self.log_dir = config.log_dir
         self.model_dir = config.model_dir
@@ -67,7 +70,9 @@ def train_model(train_loader, model, criterion, optimizer, epoch):
 
         # update loss metric
         loss = F.binary_cross_entropy(outputs, labels.float(), weights)
+        # loss = criterion(outputs, labels)
         losses.update(loss.item(), inputs.size(0))
+
         corrects = torch.sum(preds.view_as(labels) == labels.float().data)
         acc = corrects.item() / inputs.size(0)
         accs.update(acc, inputs.size(0))
@@ -89,21 +94,23 @@ def train_model(train_loader, model, criterion, optimizer, epoch):
     }
     return outspects
 
+
+# original validation function
 def valid_model(valid_loader, model, criterion, optimizer, epoch):
     # using model to predict, based on dataloader
     losses = AverageMeter('epoch_loss')
     accs = AverageMeter('epoch_acc')
     model.eval()
 
-    st_corrects = {st:0 for st in config.study_type}
-    nr_stype = {st:0 for st in config.study_type}
+    st_corrects = {st: 0 for st in config.study_type}
+    nr_stype = {st: 0 for st in config.study_type}
     study_out = {}  # study level output
-    study_label = {} # study level label
+    study_label = {}  # study level label
     auc = AUCMeter()
 
     # evaluate the model
     pbar = tqdm(valid_loader)
-    for i, data in enumerate(pbar):
+    for k, data in enumerate(pbar):
         inputs = data['image']
         labels = data['label']
         encounter = data['meta_data']['encounter']
@@ -128,7 +135,7 @@ def valid_model(valid_loader, model, criterion, optimizer, epoch):
             acc = corrects.item() / inputs.size(0)
             accs.update(acc, inputs.size(0))
 
-        pbar.set_description("EPOCH[{}][{}/{}]".format(epoch, i, len(valid_loader)))
+        pbar.set_description("EPOCH[{}][{}/{}]".format(epoch, k, len(valid_loader)))
         pbar.set_postfix(
             loss=":{:.4f}".format(losses.avg),
             acc=":{:.4f}".format(accs.avg),
@@ -144,13 +151,13 @@ def valid_model(valid_loader, model, criterion, optimizer, epoch):
                 study_out[encounter[i]] += [outputs[i].item()]
 
     # study level prediction
-    study_preds = {x:(np.mean(study_out[x]) > 0.5) == study_label[x] for x in study_out.keys()}
+    study_preds = {x: (np.mean(study_out[x]) > 0.5) == study_label[x] for x in study_out.keys()}
 
     for x in study_out.keys():
         st_corrects[x[:x.find('_')]] += study_preds[x]
 
     # acc for each study type
-    avg_corrects = {st:st_corrects[st] / nr_stype[st] for st in config.study_type}
+    avg_corrects = {st: st_corrects[st] / nr_stype[st] for st in config.study_type}
 
     total_corrects = 0
     total_samples = 0
@@ -191,7 +198,9 @@ def main():
     parser.add_argument('--drop_rate', default=0, type=float, required=False)
     parser.add_argument('--only_fc', action='store_true', help='only train fc layers')
     parser.add_argument('--net', default='densenet169', type=str, required=False)
+    parser.add_argument('--local', action='store_true', help='train local branch')
     args = parser.parse_args()
+    print(args)
 
     config.exp_name = args.exp_name
     config.make_dir()
@@ -204,7 +213,7 @@ def main():
         net = resnet101(pretrained=True, drop_rate=args.drop_rate)
     elif args.net == 'densenet121':
         net = models.densenet121(pretrained=True)
-        net.classifier = nn.Sequential(nn.Linear(1024,1), nn.Sigmoid())
+        net.classifier = nn.Sequential(nn.Linear(1024, 1), nn.Sigmoid())
     elif args.net == 'densenet169':
         net = densenet169(pretrained=True, drop_rate=args.drop_rate)
     elif args.net == 'fusenet':
@@ -215,16 +224,15 @@ def main():
     else:
         raise NameError
 
-
     net = torch.nn.DataParallel(net).cuda()
     sess = Session(config, net=net)
 
     # get dataloader
     train_loader = get_dataloaders('train', batch_size=args.batch_size,
-                                   shuffle=True)
+                                   shuffle=True, is_local=args.local)
 
     valid_loader = get_dataloaders('valid', batch_size=args.batch_size,
-                                   shuffle=False)
+                                   shuffle=False, is_local=args.local)
 
     if args.continue_path and os.path.exists(args.continue_path):
         sess.load_checkpoint(args.continue_path)
@@ -235,9 +243,9 @@ def main():
     sess.save_checkpoint('start.pth.tar')
 
     # set criterion, optimizer and scheduler
-    criterion = nn.BCELoss().cuda() # not used
+    criterion = nn.BCELoss().cuda()  # not used
 
-    if args.only_fc == True:
+    if args.only_fc:
         optimizer = optim.Adam(sess.net.module.classifier.parameters(), args.lr)
     else:
         optimizer = optim.Adam(sess.net.parameters(), args.lr)
@@ -251,10 +259,10 @@ def main():
         valid_out = valid_model(valid_loader, sess.net,
                                 criterion, optimizer, clock.epoch)
 
-        tb_writer.add_scalars('loss',{'train': train_out['epoch_loss'],
+        tb_writer.add_scalars('loss', {'train': train_out['epoch_loss'],
                                       'valid': valid_out['epoch_loss']}, clock.epoch)
 
-        tb_writer.add_scalars('acc',{'train': train_out['epoch_acc'],
+        tb_writer.add_scalars('acc', {'train': train_out['epoch_acc'],
                                       'valid': valid_out['epoch_acc']}, clock.epoch)
 
         tb_writer.add_scalar('auc', valid_out['epoch_auc'], clock.epoch)
