@@ -32,3 +32,6 @@ To get the similar images of a query input, run `python3 retrieval.py --img_path
 To specify the type, add `--img_type=<study type of the image>`, the default is searching from all types.
 
 For example, run `python3 retrieval.py --img_path=results/retrieval_result/elbow.png --data_dir=/data1/wurundi/ML/data --img_type=ELBOW`, the top 5 similar images `elbow1.png` `elbow2.png` `elbow3.png` `elbow4.png` `elbow5.png` will be saved in the same directory of `elbow.png`.
+
+# Results
+Please check `MURA_report.pdf` for experiment results.
