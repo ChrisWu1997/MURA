@@ -451,7 +451,7 @@ def test():
     local_branch = torch.load(LOCAL_BRANCH_DIR)['net']
     net = fusenet(global_branch, local_branch)
 
-    net = torch.nn.DataParallel(net).cuda()
+    net = net.cuda()
 
     dataloader = get_dataloaders('valid', batch_size=8, shuffle=True, num_workers=8)
 

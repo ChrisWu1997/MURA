@@ -34,7 +34,7 @@ class Session:
     def save_checkpoint(self, name):
         ckp_path = os.path.join(self.model_dir, name)
         tmp = {
-            'net': self.net,
+            'net': self.net.state_dict(),
             'best_val_acc': self.best_val_acc,
             'clock': self.clock.make_checkpoint(),
         }
@@ -42,7 +42,7 @@ class Session:
 
     def load_checkpoint(self, ckp_path):
         checkpoint = torch.load(ckp_path)
-        self.net = checkpoint['net']
+        self.net.load_state_dict(checkpoint['net'])
         self.clock.restore_checkpoint(checkpoint['clock'])
         self.best_val_acc = checkpoint['best_val_acc']
 
@@ -217,14 +217,14 @@ def main():
     elif args.net == 'densenet169':
         net = densenet169(pretrained=True, drop_rate=args.drop_rate)
     elif args.net == 'fusenet':
-        global_branch = torch.load(GLOBAL_BRANCH_DIR)['net'].module.state_dict()
-        local_branch = torch.load(LOCAL_BRANCH_DIR)['net'].module.state_dict()
+        global_branch = torch.load(GLOBAL_BRANCH_DIR)['net']
+        local_branch = torch.load(LOCAL_BRANCH_DIR)['net']
         net = fusenet(global_branch, local_branch)
         del global_branch, local_branch
     else:
         raise NameError
 
-    net = torch.nn.DataParallel(net).cuda()
+    net = net.cuda()
     sess = Session(config, net=net)
 
     # get dataloader
